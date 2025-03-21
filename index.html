@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<head>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: white;
+        }
+
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            color: transparent;
+        }
+    </style>
+</head>
+<body>
+    <canvas></canvas>
+
+    <script>
+        window.addEventListener("load", function () { resize(); Start(); });
+        window.addEventListener("resize", resize);
+
+        // Main objects
+        var canvas = document.querySelector('canvas');
+        var ctx = canvas.getContext('2d');
+        var nodes = [];
+
+        // Cartesian plane parameters
+        let originX = null;                 // Origin location X
+        let originY = null;                 // Origin location Y
+        const scale = 300;                  // Node coordinates are mapped from [-1, 1] to [-scale, scale]px
+        
+        // Node generation parameters
+        const nodeCount = 90;               // Number of nodes
+        const maxWeight = 100;              // Max relationship weight
+        const zeroFactor = 0.9;             // Approx number of nodes that have ho relationiship
+
+        // Simulation parameters
+        const distanceFactor = 1.5;         // Distance factor (see below)
+        const stressReductionFactor = 1;    // Stress reduction factor (see below)
+        const epsilonStart = 0.001;         // Epsilon parameter: initial value (see below)
+        const epsilonMax = 0.01;            // Epsilon parameter: maximum value (see below)
+        const epsilonDelta = 0.0001;        // Epsilon increment per frame (see below)
+        var epsilon = epsilonStart;         // Epsilon parameter (see below)
+
+        // Drawing parameters
+        const initialDelay = 1000;          // Initial delay in milliseconds
+        const delay = 30;                   // Refresh delay in milliseconds
+        
+        // Styles
+        const perimeterColor = "#000";
+        const perimeterWidth = 1;
+        const nodeColor = "#000";
+        const nodeRadius = 1;
+        const archColor = "255,0,127";
+        const archBaseWidth = 0.5;
+        const missColor = "0,0,255";
+        const missAlpha = (1 / maxWeight) * 8;
+        const missWidth = 1;
+
+        function Start() {
+            
+            // Simulation variables
+            var weights = [];
+            var distances = [];
+            var points = [];
+            var forces = new Array(nodeCount);
+            var vector = [0, 0];
+
+            // Initialize adjacency/distance matrices
+            for (var i = 0; i < nodeCount; i++) {
+                weights[i] = new Array(nodeCount);
+                distances[i] = new Array(nodeCount);
+                forces[i] = [0, 0];
+            }
+            // Generate random weights and distances
+            for (var i = 0; i < nodeCount - 1; i++) {
+                for (var j = i + 1; j < nodeCount; j++) {
+                    var isZero = Math.random() < zeroFactor;
+                    var weight = isZero ? 0 : 1 + Math.floor(Math.random() * maxWeight); // in [0 .. maxWeight]
+                    weights[i][j] = weight;
+                    distances[i][j] = distanceFactor * (1 / (1 + weight));
+                }
+            }
+            
+            // Assign nodes to points in the 2d space following a circle 
+            var angleStep = (2 * Math.PI) / nodeCount;
+            for (var i = 0, angle = 0; i < nodeCount; i++, angle += angleStep) {
+                var x = Math.cos(angle);
+                var y = Math.sin(angle);
+                points[i] = [x, y];
+            }
+            
+            // Draw for the first time
+            drawPerimeter();
+            drawAllArchs(nodeCount, points, weights);
+            drawAllNodes(nodeCount, points);
+            
+            // Simulation loop
+            function process() {
+
+                // Inizialize forces matrix
+                for (var i = 0; i < nodeCount; i++) {
+                    forces[i][0] = 0;
+                    forces[i][1] = 0;
+                }
+
+                // Updating epsilon to start slowly and accelerate up to a maximum
+                if (epsilon < epsilonMax)
+                    epsilon += epsilonDelta;
+                    
+                // Compute forces foreach node couple
+                for (var i = 0; i < nodeCount - 1; i++) {
+                    for (var j = i + 1; j < nodeCount; j++) {
+                        var a = points[i];
+                        var b = points[j];
+
+                        // Computing L2 distance between the two points
+                        var currentDistance = Math.sqrt(Math.pow(a[0] - b[0], 2) + Math.pow(a[1] - b[1], 2)); 
+                        var optimalDistance = distances[i][j];
+                        var stress = currentDistance - optimalDistance;
+
+                        if (stress < 0)
+                            // This could be tweaked to advantage "neighborhood" 
+                            // over "repulsiveness" and viceversa
+                            stress /= stressReductionFactor;
+
+                        var delta = epsilon * stress;
+
+                        // Compute the vector that points a to b
+                        vector[0] = b[0] - a[0];
+                        vector[1] = b[1] - a[1];
+                        
+                        // Updating global forces on the two nodes
+                        forces[i][0] += delta * vector[0];
+                        forces[i][1] += delta * vector[1];
+                        forces[j][0] += delta * -vector[0];
+                        forces[j][1] += delta * -vector[1];
+                    }
+                }
+
+                // Updating points according to computed forces
+                for (var i = 0; i < nodeCount; i++) {
+                    points[i][0] += forces[i][0];
+                    points[i][1] += forces[i][1];
+                }
+                    
+                // Clear canvas and redraw
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawPerimeter();
+                drawAllArchs(nodeCount, points, weights);
+                drawAllNodes(nodeCount, points);
+                
+                // Schedule next frame
+                setTimeout(process, delay);
+            }
+
+            // Start processing
+            setTimeout(process, initialDelay);
+        }
+
+        // Canvas drawing helpers
+
+        function resize() {
+            // Resize canvas
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Set origin to center and redraw grid
+            originX = canvas.width / 2;
+            originY = canvas.height / 2;
+        }
+
+        function drawPerimeter() {
+            ctx.strokeStyle = perimeterColor;
+            ctx.fillStyle = "#000";
+            ctx.lineWidth = perimeterWidth;
+            ctx.beginPath();
+            var radius = 1 * scale;
+            ctx.arc(originX,originY, radius, 0, 2 * Math.PI, false);
+            ctx.stroke();
+        }
+
+        function drawNode(x, y) {
+            var rx = originX + x * scale;
+            var ry = originY - y * scale;
+            ctx.beginPath();
+            ctx.arc(rx, ry, nodeRadius, 0, 2 * Math.PI, false);
+            ctx.fill();
+        }
+
+        function drawAllNodes(nodeCount, points) {
+            ctx.strokeStyle = nodeColor;
+            ctx.fillStyle = nodeColor;
+            for (var i = 0; i < nodeCount; i++) {
+                var x = points[i][0];
+                var y = points[i][1];
+                drawNode(x, y);
+            }
+        }
+
+        function drawArch(ax, ay, bx, by, weight) {
+            if (weight > 0) {
+                // Style for relationiship.
+                var alpha = weight / maxWeight;
+                ctx.strokeStyle = 'rgba(' + archColor + ',' + alpha + ')';
+                ctx.lineWidth = archBaseWidth + alpha;   
+            }
+            else {
+                if (missAlpha == 0)
+                    return;
+                // Style for missing relationship.
+                ctx.strokeStyle = 'rgba(' + missColor + ',' + missAlpha + ')';
+                ctx.lineWidth = missWidth;
+            }
+            ctx.beginPath();
+            var rax = originX + ax * scale;
+            var ray = originY - ay * scale;
+            ctx.moveTo(rax, ray);
+            var rbx = originX + bx * scale;
+            var rby = originY - by * scale;
+            ctx.lineTo(rbx, rby);
+            ctx.stroke();
+        }
+
+        function drawAllArchs(nodeCount, points, weights) {
+            for (var i = 0; i < nodeCount - 1; i++) {
+                for (var j = i + 1; j < nodeCount; j++) {
+                    var a = points[i];
+                    var b = points[j];
+                    var weight = weights[i][j];
+                    drawArch(a[0], a[1], b[0], b[1], weight);
+                }
+            }
+        }
+    </script>
+</body>
