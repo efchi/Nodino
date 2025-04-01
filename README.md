@@ -4,4 +4,7 @@ An experiment about drawing a force-directed graph in the browser that produces 
 
 This small demo is built entirely from scratch and has no dependencies other than the standard JS / browser API and runtime.
 
-![Animation](Animation.gif)
+<br/>
+<p align="center">
+  <img src="Animation.gif" alt="Animation" />
+</p>
